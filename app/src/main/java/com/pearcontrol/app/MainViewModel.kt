@@ -36,6 +36,7 @@ class MainViewModel : ViewModel() {
     private var repository: PearRepository? = null
     private var autoRefreshJob: Job? = null
     private var volumeUnitInterval: Boolean? = null
+    private var consecutiveSuspiciousZeroVolumeReads: Int = 0
 
     fun updateServerUrl(value: String) {
         _uiState.update { it.copy(serverUrl = value, error = null) }
@@ -126,10 +127,17 @@ class MainViewModel : ViewModel() {
             volume?.let {
                 volumeUnitInterval = when {
                     it.state > 1.0 -> false
-                    it.state >= 0.0 -> true
+                    it.state > 0.0 -> true
                     else -> volumeUnitInterval
                 }
             }
+
+            val serverVolumeSlider = volume?.state?.let(::serverVolumeToSlider)
+            val shouldSuppressStaleZero = shouldSuppressStaleZeroVolume(
+                serverVolumeSlider = serverVolumeSlider,
+                isMuted = volume?.isMuted,
+                currentSlider = _uiState.value.volumeSlider
+            )
 
             val hasFailure = listOf(
                 songResult.exceptionOrNull(),
@@ -148,7 +156,11 @@ class MainViewModel : ViewModel() {
                     repeatMode = repeat?.mode,
                     shuffleEnabled = shuffle?.state,
                     fullscreenEnabled = fullscreen?.state,
-                    volumeSlider = volume?.state?.let(::serverVolumeToSlider) ?: it.volumeSlider,
+                    volumeSlider = when {
+                        serverVolumeSlider == null -> it.volumeSlider
+                        shouldSuppressStaleZero -> it.volumeSlider
+                        else -> serverVolumeSlider
+                    },
                     isBusy = false,
                     status = if (hasFailure) "Partially refreshed" else "Synced",
                     error = if (hasFailure) "Some state values could not be fetched" else null
@@ -295,6 +307,25 @@ class MainViewModel : ViewModel() {
         } else {
             sliderValue.coerceIn(0.0, 100.0)
         }
+    }
+
+    private fun shouldSuppressStaleZeroVolume(
+        serverVolumeSlider: Float?,
+        isMuted: Boolean?,
+        currentSlider: Float
+    ): Boolean {
+        if (serverVolumeSlider == null) {
+            return false
+        }
+
+        val isSuspiciousZero = (isMuted == false) && serverVolumeSlider <= 0.5f && currentSlider > 1f
+        consecutiveSuspiciousZeroVolumeReads = if (isSuspiciousZero) {
+            consecutiveSuspiciousZeroVolumeReads + 1
+        } else {
+            0
+        }
+
+        return consecutiveSuspiciousZeroVolumeReads >= 3
     }
 
     private fun normalizeBaseUrl(url: String): String? {
