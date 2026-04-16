@@ -1,6 +1,7 @@
 # Pear Control (Android)
 
-# Disclaimer: Created with AI because i don't have time to make everything myself, but it is pretty minimalistic and works so there should be no problems. Still i think it is only fair to add this disclaimer.
+# Disclaimer
+## Created with AI because i don't have time to make everything myself, but it is pretty minimalistic and works so there should be no problems. Still i think it is only fair to add this disclaimer.
 
 Android app to control Pear Desktop using the API from the included API Server Plugin.
 
