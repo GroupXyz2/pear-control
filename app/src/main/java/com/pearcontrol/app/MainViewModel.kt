@@ -1,6 +1,8 @@
 package com.pearcontrol.app
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import android.content.Context
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -29,7 +31,9 @@ data class MainUiState(
     val volumeSlider: Float = 50f
 )
 
-class MainViewModel : ViewModel() {
+class MainViewModel(application: Application) : AndroidViewModel(application) {
+    private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
@@ -38,11 +42,31 @@ class MainViewModel : ViewModel() {
     private var volumeUnitInterval: Boolean? = null
     private var consecutiveSuspiciousZeroVolumeReads: Int = 0
 
+    init {
+        val savedUrl = prefs.getString(KEY_SERVER_URL, null)
+        val savedDeviceId = prefs.getString(KEY_DEVICE_ID, null)
+
+        if (!savedUrl.isNullOrBlank() || !savedDeviceId.isNullOrBlank()) {
+            _uiState.update {
+                it.copy(
+                    serverUrl = savedUrl ?: it.serverUrl,
+                    deviceId = savedDeviceId ?: it.deviceId
+                )
+            }
+        }
+
+        if (!savedUrl.isNullOrBlank() && !savedDeviceId.isNullOrBlank()) {
+            authenticate()
+        }
+    }
+
     fun updateServerUrl(value: String) {
+        prefs.edit().putString(KEY_SERVER_URL, value).apply()
         _uiState.update { it.copy(serverUrl = value, error = null) }
     }
 
     fun updateDeviceId(value: String) {
+        prefs.edit().putString(KEY_DEVICE_ID, value).apply()
         _uiState.update { it.copy(deviceId = value, error = null) }
     }
 
@@ -75,6 +99,11 @@ class MainViewModel : ViewModel() {
             val repo = PearRepository(normalizedUrl)
             val authResult = repo.authenticate(current.deviceId.trim())
             if (authResult.isSuccess) {
+                prefs.edit()
+                    .putString(KEY_SERVER_URL, normalizedUrl.removeSuffix("/"))
+                    .putString(KEY_DEVICE_ID, current.deviceId.trim())
+                    .apply()
+
                 repo.setToken(authResult.getOrThrow())
                 repository = repo
                 _uiState.update {
@@ -351,5 +380,11 @@ class MainViewModel : ViewModel() {
     override fun onCleared() {
         autoRefreshJob?.cancel()
         super.onCleared()
+    }
+
+    companion object {
+        private const val PREFS_NAME = "pear_control_prefs"
+        private const val KEY_SERVER_URL = "server_url"
+        private const val KEY_DEVICE_ID = "device_id"
     }
 }
