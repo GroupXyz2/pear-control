@@ -39,8 +39,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var repository: PearRepository? = null
     private var autoRefreshJob: Job? = null
-    private var volumeUnitInterval: Boolean? = null
-    private var consecutiveSuspiciousZeroVolumeReads: Int = 0
 
     init {
         val savedUrl = prefs.getString(KEY_SERVER_URL, null)
@@ -153,21 +151,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val shuffle = shuffleResult.getOrNull()
             val fullscreen = fullscreenResult.getOrNull()
 
-            volume?.let {
-                volumeUnitInterval = when {
-                    it.state > 1.0 -> false
-                    it.state > 0.0 -> true
-                    else -> volumeUnitInterval
-                }
-            }
-
-            val serverVolumeSlider = volume?.state?.let(::serverVolumeToSlider)
-            val shouldSuppressStaleZero = shouldSuppressStaleZeroVolume(
-                serverVolumeSlider = serverVolumeSlider,
-                isMuted = volume?.isMuted,
-                currentSlider = _uiState.value.volumeSlider
-            )
-
             val hasFailure = listOf(
                 songResult.exceptionOrNull(),
                 volumeResult.exceptionOrNull(),
@@ -185,11 +168,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     repeatMode = repeat?.mode,
                     shuffleEnabled = shuffle?.state,
                     fullscreenEnabled = fullscreen?.state,
-                    volumeSlider = when {
-                        serverVolumeSlider == null -> it.volumeSlider
-                        shouldSuppressStaleZero -> it.volumeSlider
-                        else -> serverVolumeSlider
-                    },
+                    volumeSlider = it.volumeSlider,
                     isBusy = false,
                     status = if (hasFailure) "Partially refreshed" else "Synced",
                     error = if (hasFailure) "Some state values could not be fetched" else null
@@ -250,8 +229,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun commitVolume() {
         val slider = _uiState.value.volumeSlider.roundToInt().coerceIn(0, 100).toDouble()
-        val serverValue = sliderToServerVolume(slider)
-        sendCommand("Volume set to ${slider.toInt()}%") { it.setVolume(serverValue) }
+        sendCommand("Volume set to ${slider.toInt()}%") { it.setVolume(slider) }
     }
 
     fun disconnect() {
@@ -319,42 +297,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 refreshState(silent = true)
             }
         }
-    }
-
-    private fun serverVolumeToSlider(serverValue: Double): Float {
-        val sliderValue = if (volumeUnitInterval == true) {
-            serverValue * 100.0
-        } else {
-            serverValue
-        }
-        return sliderValue.coerceIn(0.0, 100.0).toFloat()
-    }
-
-    private fun sliderToServerVolume(sliderValue: Double): Double {
-        return if (volumeUnitInterval == true) {
-            (sliderValue / 100.0).coerceIn(0.0, 1.0)
-        } else {
-            sliderValue.coerceIn(0.0, 100.0)
-        }
-    }
-
-    private fun shouldSuppressStaleZeroVolume(
-        serverVolumeSlider: Float?,
-        isMuted: Boolean?,
-        currentSlider: Float
-    ): Boolean {
-        if (serverVolumeSlider == null) {
-            return false
-        }
-
-        val isSuspiciousZero = (isMuted == false) && serverVolumeSlider <= 0.5f && currentSlider > 1f
-        consecutiveSuspiciousZeroVolumeReads = if (isSuspiciousZero) {
-            consecutiveSuspiciousZeroVolumeReads + 1
-        } else {
-            0
-        }
-
-        return consecutiveSuspiciousZeroVolumeReads >= 3
     }
 
     private fun normalizeBaseUrl(url: String): String? {

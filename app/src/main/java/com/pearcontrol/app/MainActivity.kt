@@ -527,6 +527,12 @@ private fun VolumeCard(
                 enabled = !uiState.isBusy
             )
 
+            Text(
+                text = "Set-only mode (server readback is unreliable)",
+                color = Color(0xFFC4D4F7),
+                style = MaterialTheme.typography.bodySmall
+            )
+
             FilledTonalButton(
                 onClick = onToggleMute,
                 enabled = !uiState.isBusy,

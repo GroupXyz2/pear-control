@@ -22,6 +22,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-url", required=True, help="Server base URL, e.g. http://192.168.1.25:3000")
     parser.add_argument("--id", required=True, help="Auth ID used for /auth/{id}")
     parser.add_argument("--timeout", type=float, default=8.0, help="Request timeout in seconds (default: 8)")
+    parser.add_argument(
+        "--test-volume",
+        type=float,
+        default=None,
+        help="Optional: send POST /api/v1/volume with this value and read volume state back",
+    )
     return parser.parse_args()
 
 
@@ -74,6 +80,15 @@ def request_json(
             except json.JSONDecodeError:
                 pass
         return err.code, details
+
+
+def parse_volume_state(data: Any) -> Optional[float]:
+    if not isinstance(data, dict):
+        return None
+    state = data.get("state")
+    if isinstance(state, (int, float)):
+        return float(state)
+    return None
 
 
 def main() -> int:
@@ -136,6 +151,59 @@ def main() -> int:
             if data is not None:
                 print(f"   Response: {data}")
             all_ok = False
+
+    if args.test_volume is not None:
+        print(f"{len(checks) + 2}) POST /api/v1/volume (test value: {args.test_volume}) ...")
+        post_url = f"{base_url}/api/v1/volume"
+        post_payload = {"volume": args.test_volume}
+
+        try:
+            post_status, post_data = request_json(
+                "POST",
+                post_url,
+                timeout=args.timeout,
+                token=token,
+                payload=post_payload,
+            )
+        except Exception as err:
+            print(f"   FAIL: network error while setting volume: {err}")
+            all_ok = False
+        else:
+            if post_status in (200, 204):
+                print(f"   OK: set request status {post_status}")
+            else:
+                print(f"   FAIL: set request status {post_status}")
+                if post_data is not None:
+                    print(f"   Response: {post_data}")
+                all_ok = False
+
+        print(f"{len(checks) + 3}) GET /api/v1/volume (readback) ...")
+        try:
+            rb_status, rb_data = request_json("GET", post_url, timeout=args.timeout, token=token)
+        except Exception as err:
+            print(f"   FAIL: network error while reading volume: {err}")
+            all_ok = False
+        else:
+            if rb_status in (200, 204):
+                print(f"   OK: readback status {rb_status}")
+                if rb_data is not None:
+                    print(f"   Data: {rb_data}")
+
+                readback_state = parse_volume_state(rb_data)
+                if readback_state is None:
+                    print("   WARN: could not parse readback volume state")
+                elif abs(readback_state - args.test_volume) < 1e-6:
+                    print("   OK: readback matches requested value")
+                else:
+                    print(
+                        "   WARN: readback does not match requested value "
+                        f"(requested={args.test_volume}, readback={readback_state})"
+                    )
+            else:
+                print(f"   FAIL: readback status {rb_status}")
+                if rb_data is not None:
+                    print(f"   Response: {rb_data}")
+                all_ok = False
 
     print()
     if all_ok:
